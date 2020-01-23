@@ -158,7 +158,7 @@ struct kmer_struct *find_kmer2aa(char *kmer_id) {
 struct aa_count_struct *find_aa_count(char *aa_id) {
     struct aa_count_struct *a;
     HASH_FIND_STR( aa_counts, aa_id, a );  /* s: output pointer */
-    if(a == NULL) printf("%s not found\n", aa_id);
+    //if(a == NULL) printf("%s not found\n", aa_id);
     return a;
 }
 
@@ -262,6 +262,8 @@ void generate_local_counts(char *aas, int start, int end, char *tmp_aa) {
         //printf("inside %d aa = %c\n", i, tmp_aa);
         //Calculate index for aa_counts
         unsigned idx = aa_to_idx(tmp_aa);
+        //printf("idx = %d\n", idx);
+        //if(idx == 119) printf("YYYYYEEEEEAHHHHH %d mem = %p\n", i, &aas+i);
         //printf("total_idx = %d aa = %s\n", total_idx, tmp_aa);
         *(local_aa_counts + idx) += 1;
     }
@@ -269,31 +271,24 @@ void generate_local_counts(char *aas, int start, int end, char *tmp_aa) {
 void check_local_counts(int old) {
     int sum = 0;
     bool error_found = false;
-    //if(loop_counter == 2) printf("idx 5 = %d\n", *(local_aa_counts+5));
     for(int i = 0; i < total_aas; i++) {
         if(*(local_aa_counts+i) < 0) {
-            //printf("ERROR: old %d local_aa_counts contains value less than 0: idx %d = %d\n", old, i, *(local_aa_counts+i));
+            printf("ERROR: old %d local_aa_counts contains value less than 0: idx %d = %d\n", old, i, *(local_aa_counts+i));
             error_found = true;
         }
         sum += *(local_aa_counts+i);
     }
-    if(sum != 2*read_size/aa_size) {
-        //printf("ERROR: sum of local counts != (2*read size)/aa_size: %d != %d\n", 2*read_size/aa_size, sum);
+    if(sum != 2*read_size/aa_size + 1) {
+        printf("ERROR: sum of local counts != (2*read size)/aa_size: %d != %d\n", 2*read_size/aa_size+1, sum);
         error_found = true;
     }
-    //if(error_found) exit(1);
+    if(error_found) exit(1);
 }
-
 void generate_cooccurs(char *aas, int num_aas) {
     int beg = num_aas - read_size;
     int end = read_size;
     memset(local_aa_counts, 0, sizeof(int) * total_aas);
     printf("in cooccur num kmers = %d\n", num_aas);
-    if(loop_counter == 2) {
-        FILE *out = fopen("./buggy_aas.txt", "w+");
-        fprintf(out, "%s\n", aas);
-        fclose(out);
-    }
     /*
     char *first_hun = calloc(100, sizeof(char));
     strncpy(first_hun, aas, 100);
@@ -302,23 +297,21 @@ void generate_cooccurs(char *aas, int num_aas) {
     //Generate initial local aa counts
     char *tmp_aa = malloc(aa_size+1);
     tmp_aa[(int) aa_size] = '\0';
-    generate_local_counts(aas, 0, end, tmp_aa);
+    generate_local_counts(aas, 0, end+1, tmp_aa);
     generate_local_counts(aas, beg, num_aas, tmp_aa);
     int sum = 0;
     for(int i = 0; i < total_aas; i++) {
         sum += *(local_aa_counts+i);
         //if(*(local_aa_counts+i) < 0) printf("ERROR: local_aa_counts contains value less than 0: idx %d = %d\n", i, *(local_aa_counts+i));
     }
-    if(sum != 2*read_size/aa_size) printf("ERROR: sum of local counts != (2*read size)/aa_size: %d != %d\n", 2*read_size/aa_size, sum);
-    //printf("out\n");
+    if(sum != 2*read_size/aa_size + 1) printf("ERROR: sum of local counts != (2*read size)/aa_size + 1: %d != %d\n", 2*read_size/aa_size + 1, sum);
     //Scan over the AAs, adding the local AAs to the AA hashmap and moving curr, beg, and end
-    if(loop_counter == 2) printf("Initial idx 5 count = %d\n", *(local_aa_counts+5));
     for(int i = 0; i < num_aas - aa_size + 1; i+=aa_size) {
         //printf("tmp_aa = %s\n", tmp_aa);
         //Add current local counts to the current A
         //Subtract AA at "i" as it doesnt cooccur with itself, then readd back
-        if(i == 9416) {
-            printf("solve the bugs\n");
+        if(i == 152) {
+            printf("save the day plz\n");
         }
         memcpy(tmp_aa, aas+i, aa_size);
         unsigned aa_idx = aa_to_idx(tmp_aa);
@@ -329,14 +322,17 @@ void generate_cooccurs(char *aas, int num_aas) {
         //Shift beg and end, adding and subtracting AAs from local
         memcpy(tmp_aa, aas+beg, aa_size);
         aa_idx = aa_to_idx(tmp_aa);
+        //if(aa_idx == 119) printf("SUBBING %d mem = %p\n", beg, &aas+beg);
         //if(aa_idx == 5 && loop_counter == 2) printf("subtracting 1 count = %d\n", *(local_aa_counts+5) - 1);
         local_aa_counts[aa_idx]--;
         //Subtract AA size (so that if, for example, aa_size = 2 and end is num_aas - 1, the null character isn't in tmp_aa
         //Add +1 because
-        beg = (int)(beg + aa_size) % (int) (num_aas - aa_size + 1);
-        end = (int)(end + aa_size) % (int) (num_aas - aa_size + 1);
+        beg = (int)(beg + aa_size) % (int) (num_aas);
+        end = (int)(end + aa_size) % (int) (num_aas);
+        if(end == num_aas - 1) printf("DANGER\n");
         memcpy(tmp_aa, aas+end, aa_size);
         aa_idx = aa_to_idx(tmp_aa);
+        //if(aa_idx == 119) printf("ADDING %d mem = %p\n", end, &aas+end);
         //if(aa_idx == 5 && loop_counter == 2) printf("adding 1 count = %d\n", *(local_aa_counts+5) + 1);
         local_aa_counts[aa_idx]++;
         //TODO COMMENT OUT
