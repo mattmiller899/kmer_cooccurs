@@ -388,13 +388,14 @@ void norm_aa_counts() {
     tmp_aa[(int)aa_size] = '\0';
     char *tmp_aa2 = malloc(aa_size+1);
     tmp_aa2[(int)aa_size] = '\0';
+    int num_codons;
     for(int i = 0; i < total_aas; i++) {
         //TODO PROLLY WONT WORK FOR 6mer
         idx_to_aa(i, tmp_aa);
         int *tmp_counts = get_aa_counts(tmp_aa);
         for (int j = 0; j < total_aas; j++) {
-            idx_to_aa(i, tmp_aa2);
-            int num_codons = 1;
+            idx_to_aa(j, tmp_aa2);
+            num_codons = 1;
             //Normalizing by # of codons for 1st AA times # of codons for 2nd AA
             for(int k = 0; k < aa_size; k++) {
                 num_codons = num_codons * codon_count_table[*(tmp_aa+k)] * codon_count_table[*(tmp_aa2+k)];
