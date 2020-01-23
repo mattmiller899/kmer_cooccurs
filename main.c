@@ -5,6 +5,8 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <libgen.h>
+#include <string.h>
+#include <stdlib.h>
 
 
 
@@ -425,6 +427,16 @@ char *remove_ext (char* myStr, char extSep, char pathSep) {
     return retStr;
 }
 
+char *my_itoa(int num, char *str)
+{
+    if(str == NULL)
+    {
+        return NULL;
+    }
+    sprintf(str, "%d", num);
+    return str;
+}
+
 
 int main(int argc, char **argv) {
     printf("Hello, World!\n");
@@ -444,15 +456,25 @@ int main(int argc, char **argv) {
     total_kmers = (int) pow(4.0, (double) kmer_size);
     local_aa_counts = (int*) calloc(total_aas, sizeof(int));
     char *fn = remove_ext(basename(fp), '.', '/');
-    char raw_fp[500], norm_fp[500];
+    char *raw_fp = calloc(500, 1);
+    char *norm_fp = calloc(500, 1);
+    char *kmer_str = calloc(2, 1);
+    my_itoa(kmer_size, kmer_str);
+    strcat(kmer_str, "mer.csv");
+    printf("kmerstr = %s\n", kmer_str);
     strcpy(raw_fp, out_dir);
     strcat(raw_fp, "/");
     strcat(raw_fp, fn);
-    strcat(raw_fp, "_cooccurs_raw.csv");
+    strcat(raw_fp, "_cooccurs_raw_");
+    strcat(raw_fp, kmer_str);
+    printf("rawfp = %s\n", raw_fp);
     strcpy(norm_fp, out_dir);
     strcat(norm_fp, "/");
     strcat(norm_fp, fn);
-    strcat(norm_fp, "_cooccurs_norm.csv");
+    strcat(norm_fp, "_cooccurs_norm_");
+    strcat(norm_fp, kmer_str);
+    printf("norm = %s\n", norm_fp);
+
 
     //Initialize hashtables
     /*
