@@ -310,9 +310,6 @@ void generate_cooccurs(char *aas, int num_aas) {
         //printf("tmp_aa = %s\n", tmp_aa);
         //Add current local counts to the current A
         //Subtract AA at "i" as it doesnt cooccur with itself, then readd back
-        if(i == 152) {
-            printf("save the day plz\n");
-        }
         memcpy(tmp_aa, aas+i, aa_size);
         unsigned aa_idx = aa_to_idx(tmp_aa);
         local_aa_counts[aa_idx]--;
