@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+//
 
 
 #define BAD_NUC -128
@@ -25,10 +26,9 @@ int kmer_size, total_aas;
 int aa_size;
 struct kmer_struct *kmer2aa = NULL;
 struct aa_count_struct *aa_counts = NULL;
-int *local_aa_counts;
-int *total_aa_counts;
+float *local_aa_counts;
 char **kmer_ptrs;
-const int read_size = 150;
+int read_size = 150;
 
 char all_aas[21] = {'A', 'C', 'D', 'E', 'F', 'G',
                     'H', 'I', 'K', 'L', 'M', 'N',
@@ -61,7 +61,7 @@ struct kmer_struct {
 };
 struct aa_count_struct {
     char *aa;            /* key */
-    int *counts;
+    float *counts;
     UT_hash_handle hh; /* makes this structure hashable */
 };
 const char nucs[4] = "ACGT";
@@ -181,24 +181,24 @@ void init_kmer2aa(char *kmer_id, char *name) {
     //printf("init struct kmer = %s aa = %s mem = %p\n", s->kmer, s->aa, &s);
     HASH_ADD_STR( kmer2aa, kmer, s );  /* id: name of key field */
 }
-void init_count(char *aa_id, int *tmp_counts) {
+void init_count(char *aa_id, float *tmp_counts) {
     if(find_aa_count(aa_id) != NULL) return;
     struct aa_count_struct *s;
     s = malloc(sizeof(struct aa_count_struct));
     char *aa = malloc(aa_size+1);
-    int *counts = calloc(pow(21.0, aa_size), sizeof(int));
+    float *counts = calloc(total_aas, sizeof(float));
     strcpy(aa, aa_id);
-    memcpy(counts, tmp_counts, sizeof(int)*21);
+    memcpy(counts, tmp_counts, sizeof(float)*total_aas);
     s->aa = aa;
     s->counts = counts;
     //printf("init struct aa = %s count = %d mem = %p\n", s->aa, s->count, &s);
     HASH_ADD_STR( aa_counts, aa, s );  /* id: name of key field */
 }
-int *get_aa_counts(char *aa_id) {
+float *get_aa_counts(char *aa_id) {
     struct aa_count_struct *s = find_aa_count(aa_id);
     return s->counts;
 }
-void add_aa_counts(char *aa_id, int *add_counts) {
+void add_aa_counts(char *aa_id, float *add_counts) {
     struct aa_count_struct *s = find_aa_count(aa_id);
     for(int i = 0; i < total_aas; i++) {
         *(s->counts+i) += *(add_counts+i);
@@ -258,35 +258,86 @@ void idx_to_kmer(int idx, char *tmp_codon) {
     }
 }
 
-void generate_local_counts(char *aas, int start, int end, char *tmp_aa) {
+void generate_local_counts(char *aas, int start, int end, char *tmp_aa, bool use_weights, bool start_is_curr) {
+    float weight_val = 1.0;
+    unsigned idx;
     for(int i = start; i < end; i+=aa_size) {
         memcpy(tmp_aa, aas+i, aa_size);
         //printf("inside %d aa = %c\n", i, tmp_aa);
         //Calculate index for aa_counts
-        unsigned idx = aa_to_idx(tmp_aa);
+        idx = aa_to_idx(tmp_aa);
         //printf("idx = %d\n", idx);
         //if(idx == 119) printf("YYYYYEEEEEAHHHHH %d mem = %p\n", i, &aas+i);
         //printf("total_idx = %d aa = %s\n", total_idx, tmp_aa);
-        *(local_aa_counts + idx) += 1;
+
+        //TODO CHECK THIS
+        if(use_weights && start_is_curr) weight_val = i - start;
+        else if(use_weights && !start_is_curr) weight_val = end - i;
+        if(weight_val == 0.0) *(local_aa_counts + idx) += 1.0;
+        else *(local_aa_counts + idx) +=  (1 / weight_val);
+        //printf("added val = %f\n", 1/weight_val);
     }
+    //printf("init count = %d\n", count);
 }
-void check_local_counts(int old) {
-    int sum = 0;
+void check_local_counts(int old, bool use_weights) {
+    float sum = 0;
     bool error_found = false;
     for(int i = 0; i < total_aas; i++) {
         if(*(local_aa_counts+i) < 0) {
-            printf("ERROR: old %d local_aa_counts contains value less than 0: idx %d = %d\n", old, i, *(local_aa_counts+i));
+            //printf("ERROR: old %d local_aa_counts contains value less than 0: idx %d = %d\n", old, i, *(local_aa_counts+i));
             error_found = true;
         }
         sum += *(local_aa_counts+i);
     }
     if(sum != 2*read_size/aa_size + 1) {
-        printf("ERROR: sum of local counts != (2*read size)/aa_size: %d != %d\n", 2*read_size/aa_size+1, sum);
+        //printf("ERROR: sum of local counts != (2*read size)/aa_size: %d != %d\n", 2*read_size/aa_size+1, sum);
         error_found = true;
     }
-    if(error_found) exit(1);
+    //printf("sum = %f\n", sum);
+    //exit(1);
+    if(error_found && !use_weights) exit(1);
 }
-void generate_cooccurs(char *aas, int num_aas) {
+
+void slide_window(char *aas, int num_aas, char *tmp_aa, int curr, int beg, int end) {
+    //printf("sliding window\n");
+    memset(local_aa_counts, 0.0, total_aas * sizeof(float));
+    beg = (int)(beg + aa_size) % (int) (num_aas);
+    end = (int)(end + aa_size) % (int) (num_aas);
+    //TODO TEST THIS
+    if(beg > end) {
+        unsigned idx;
+        float weight_val;
+        int tmp_i;
+        for(int i = beg; i < num_aas + end + 1; i+=aa_size) {
+            tmp_i = i % num_aas;
+            memcpy(tmp_aa, aas+tmp_i, aa_size);
+            idx = aa_to_idx(tmp_aa);
+            weight_val = abs(curr + num_aas - i + 1);
+            //printf("weight val = %f  idx = %d  i = %d  added val = %f\n", weight_val, idx, i, 1/weight_val);
+            if(weight_val == 0.0) *(local_aa_counts+idx) += 1.0;
+            else *(local_aa_counts+idx) += 1/weight_val;
+        }
+    }
+    else {
+        generate_local_counts(aas, curr, end+1, tmp_aa, true, true);
+        generate_local_counts(aas, beg, curr, tmp_aa, true, false);
+    }
+}
+
+void move_beg_end(char *aas, int num_aas, char *tmp_aa, int beg, int end) {
+    memcpy(tmp_aa, aas+beg, aa_size);
+    unsigned aa_idx = aa_to_idx(tmp_aa);
+    local_aa_counts[aa_idx]--;
+    //Subtract AA size (so that if, for example, aa_size = 2 and end is num_aas - 1, the null character isn't in tmp_aa
+    //Add +1 because
+    end = (int)(end + aa_size) % (int) (num_aas);
+    if(end == num_aas - 1) printf("DANGER\n");
+    memcpy(tmp_aa, aas+end, aa_size);
+    aa_idx = aa_to_idx(tmp_aa);
+    local_aa_counts[aa_idx]++;
+}
+
+void generate_cooccurs(char *aas, int num_aas, bool use_weights) {
     int beg = num_aas - read_size;
     int end = read_size;
     memset(local_aa_counts, 0, sizeof(int) * total_aas);
@@ -299,14 +350,15 @@ void generate_cooccurs(char *aas, int num_aas) {
     //Generate initial local aa counts
     char *tmp_aa = malloc(aa_size+1);
     tmp_aa[(int) aa_size] = '\0';
-    generate_local_counts(aas, 0, end+1, tmp_aa);
-    generate_local_counts(aas, beg, num_aas, tmp_aa);
-    int sum = 0;
+    generate_local_counts(aas, 0, end+1, tmp_aa, use_weights, true);
+    generate_local_counts(aas, beg, num_aas, tmp_aa, use_weights, false);
+    float sum = 0;
     for(int i = 0; i < total_aas; i++) {
         sum += *(local_aa_counts+i);
         //if(*(local_aa_counts+i) < 0) printf("ERROR: local_aa_counts contains value less than 0: idx %d = %d\n", i, *(local_aa_counts+i));
     }
-    if(sum != 2*read_size/aa_size + 1) printf("ERROR: sum of local counts != (2*read size)/aa_size + 1: %d != %d\n", 2*read_size/aa_size + 1, sum);
+    //printf("init sum = %f\n", sum);
+    if(sum != 2*read_size/aa_size + 1 && !use_weights) printf("ERROR: sum of local counts != (2*read size)/aa_size + 1: %d != %f\n", 2*read_size/aa_size + 1, sum);
     //Scan over the AAs, adding the local AAs to the AA hashmap and moving curr, beg, and end
     for(int i = 0; i < num_aas - aa_size + 1; i+=aa_size) {
         //printf("tmp_aa = %s\n", tmp_aa);
@@ -319,23 +371,16 @@ void generate_cooccurs(char *aas, int num_aas) {
         local_aa_counts[aa_idx]++;
         //printf("added\n");
         //Shift beg and end, adding and subtracting AAs from local
-        memcpy(tmp_aa, aas+beg, aa_size);
-        aa_idx = aa_to_idx(tmp_aa);
-        //if(aa_idx == 119) printf("SUBBING %d mem = %p\n", beg, &aas+beg);
-        //if(aa_idx == 5 && loop_counter == 2) printf("subtracting 1 count = %d\n", *(local_aa_counts+5) - 1);
-        local_aa_counts[aa_idx]--;
-        //Subtract AA size (so that if, for example, aa_size = 2 and end is num_aas - 1, the null character isn't in tmp_aa
-        //Add +1 because
+        if(use_weights) {
+            slide_window(aas, num_aas, tmp_aa, i, beg, end);
+        }
+        else {
+            move_beg_end(aas, num_aas, tmp_aa, beg, end);
+        }
         beg = (int)(beg + aa_size) % (int) (num_aas);
         end = (int)(end + aa_size) % (int) (num_aas);
-        if(end == num_aas - 1) printf("DANGER\n");
-        memcpy(tmp_aa, aas+end, aa_size);
-        aa_idx = aa_to_idx(tmp_aa);
-        //if(aa_idx == 119) printf("ADDING %d mem = %p\n", end, &aas+end);
-        //if(aa_idx == 5 && loop_counter == 2) printf("adding 1 count = %d\n", *(local_aa_counts+5) + 1);
-        local_aa_counts[aa_idx]++;
         //TODO COMMENT OUT
-        check_local_counts(i);
+        check_local_counts(i, use_weights);
         //printf("shifted\n");
         /*
         int *tmp = get_aa_counts(tmp_aa);
@@ -375,7 +420,7 @@ void write_cooccurs(char *out_fp) {
         struct aa_count_struct *a = find_aa_count(tmp_aa);
         fprintf(out, "%s", tmp_aa);
         for(int j = 0; j < total_aas; j++) {
-            fprintf(out, ",%d", a->counts[j]);
+            fprintf(out, ",%f", a->counts[j]);
         }
         fprintf(out, "\n");
     }
@@ -392,7 +437,7 @@ void norm_aa_counts() {
     for(int i = 0; i < total_aas; i++) {
         //TODO PROLLY WONT WORK FOR 6mer
         idx_to_aa(i, tmp_aa);
-        int *tmp_counts = get_aa_counts(tmp_aa);
+        float *tmp_counts = get_aa_counts(tmp_aa);
         for (int j = 0; j < total_aas; j++) {
             idx_to_aa(j, tmp_aa2);
             num_codons = 1;
@@ -446,16 +491,19 @@ int main(int argc, char **argv) {
     ssize_t chars_read;
     FILE *fin;
     //Initialize file TODO GET FROM ARG
+    bool use_weights = false;
     char fp[500];
     char out_dir[500];
     int i;
     if ((i = ArgPos((char *)"-in_file", argc, argv)) > 0) strcpy(fp, argv[i + 1]);
     if ((i = ArgPos((char *)"-out_dir", argc, argv)) > 0) strcpy(out_dir, argv[i + 1]);
     if ((i = ArgPos((char *)"-kmer", argc, argv)) > 0) kmer_size = atoi(argv[i + 1]);
+    if ((i = ArgPos((char *)"-read_size", argc, argv)) > 0) read_size = atoi(argv[i + 1]);
+    if ((i = ArgPos((char *)"-use_weights", argc, argv)) > 0) use_weights = true;
     aa_size = kmer_size / 3;
     total_aas = (int) pow(21.0, (double) aa_size);
     total_kmers = (int) pow(4.0, (double) kmer_size);
-    local_aa_counts = (int*) calloc(total_aas, sizeof(int));
+    local_aa_counts = (float*) calloc(total_aas, sizeof(float));
     char *fn = remove_ext(basename(fp), '.', '/');
     char *raw_fp = calloc(500, 1);
     char *norm_fp = calloc(500, 1);
@@ -507,7 +555,7 @@ int main(int argc, char **argv) {
     */
     //else {
     int total_count = 0;
-    int *tmp_counts = calloc(total_aas, sizeof(int));
+    float *tmp_counts = calloc(total_aas, sizeof(float));
     char *tmp_codon = malloc(kmer_size+1);
     *(tmp_codon+kmer_size) = '\0';
     char *tmp_aa = calloc(aa_size+1, 1);
@@ -580,7 +628,7 @@ int main(int argc, char **argv) {
             //printf("kmer_ptrs %d = %s\n", i, kmer_ptrs[i]);
             //printf("kmer_ptr %d = %s\n", i, kmer_ptr);
             printf("done %d\n", i);
-            generate_cooccurs(kmer_ptr, counted_num_kmers);
+            generate_cooccurs(kmer_ptr, counted_num_kmers, use_weights);
             printf("finished cooccurs %d\n", i);
             free(kmer_ptr);
         }
